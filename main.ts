@@ -1,4 +1,4 @@
-import { FileView, Notice, Plugin, TFile} from "obsidian";
+import { FileView, Notice, Plugin, TAbstractFile, TFile} from "obsidian";
 import { t } from "src/lang/helper";
 import { ZKNavigationSettngTab } from "src/settings/settings";
 import { mainNoteInit } from "src/utils/utils";
@@ -116,6 +116,10 @@ interface ZKNavigationSettings {
     canvasCardColor: string;
     canvasArrowColor: string;
     headingMatchMode: string; // "string" or "regex"
+    idExtractorSeparator: string;
+    idExtractorPosition: string;
+    idExtractorFieldName: string;
+    idExtractorAuto: boolean;
 }
 
 //Default value for setting field
@@ -187,7 +191,11 @@ const DEFAULT_SETTINGS: ZKNavigationSettings = {
     canvasSubpath: "",
     canvasCardColor: "#C0C0C0",
     canvasArrowColor: "#C0C0C0",
-    headingMatchMode: "string" 
+    headingMatchMode: "string",
+    idExtractorSeparator: "，",
+    idExtractorPosition: "last",
+    idExtractorFieldName: "Zettel",
+    idExtractorAuto: false,
 }
 
 export default class ZKNavigationPlugin extends Plugin {
@@ -200,6 +208,7 @@ export default class ZKNavigationPlugin extends Plugin {
         ID: '',
         filePath: '',
     };
+    private idExtractorProcessing: Set<string> = new Set();
     indexViewOffsetWidth: number = 0;
     indexViewOffsetHeight: number = 0;
     RefreshIndexViewFlag: boolean = false;
@@ -360,13 +369,125 @@ export default class ZKNavigationPlugin extends Plugin {
             }
         })
 
+        this.addCommand({
+            id: "zk-extract-sorting-id",
+            name: t("extract sorting id"),
+            callback: async () => {
+                const file = this.app.workspace.getActiveFile();
+                if (!file) {
+                    new Notice(t("id extractor no active file"));
+                    return;
+                }
+                await this.extractSortingId(file, { silent: false });
+            },
+        });
+
+        this.registerEvent(
+            this.app.vault.on("modify", async (abstractFile: TAbstractFile) => {
+                if (!this.settings.idExtractorAuto) {
+                    return;
+                }
+                if (!(abstractFile instanceof TFile)) {
+                    return;
+                }
+                if (abstractFile.extension !== "md") {
+                    return;
+                }
+                if (this.idExtractorProcessing.has(abstractFile.path)) {
+                    return;
+                }
+                await this.extractSortingId(abstractFile, { silent: true });
+            })
+        );
+
         this.registerHoverLinkSource(
         ZK_NAVIGATION,
         {
             defaultMod:true,
             display:ZK_NAVIGATION,
-        });     
+        });
 
+    }
+
+    private getExtractorFieldName(): string | null {
+        const fallback = "Zettel";
+        const field = (this.settings.idExtractorFieldName ?? fallback).trim();
+        if (field.length === 0) {
+            return null;
+        }
+        return field;
+    }
+
+    private extractIdFromBasename(basename: string): { id: string | null; reason?: string } {
+        const separator = this.settings.idExtractorSeparator ?? "";
+        const trimmedBase = basename.trim();
+        if (separator === "") {
+            if (trimmedBase.length === 0) {
+                return { id: null, reason: t("id extractor empty filename") };
+            }
+            return { id: trimmedBase };
+        }
+
+        if (!basename.includes(separator)) {
+            return { id: null, reason: t("id extractor separator missing") };
+        }
+
+        const rawParts = basename.split(separator);
+        const parts = rawParts.map((part) => part.trim()).filter((part) => part.length > 0);
+
+        if (parts.length === 0) {
+            return { id: null, reason: t("id extractor empty segment") };
+        }
+
+        const position = this.settings.idExtractorPosition === "first" ? "first" : "last";
+        const id = position === "first" ? parts[0] : parts[parts.length - 1];
+
+        if (!id || id.length === 0) {
+            return { id: null, reason: t("id extractor empty segment") };
+        }
+
+        return { id };
+    }
+
+    private async extractSortingId(file: TFile, { silent }: { silent: boolean }): Promise<void> {
+        const fieldName = this.getExtractorFieldName();
+        if (!fieldName) {
+            if (!silent) {
+                new Notice(t("id extractor missing field"));
+            }
+            return;
+        }
+
+        const { id, reason } = this.extractIdFromBasename(file.basename);
+        if (!id) {
+            if (!silent && reason) {
+                new Notice(reason);
+            }
+            return;
+        }
+
+        const cache = this.app.metadataCache.getFileCache(file);
+        const currentValue = cache?.frontmatter?.[fieldName];
+        if (currentValue === id) {
+            return;
+        }
+
+        this.idExtractorProcessing.add(file.path);
+        try {
+            await this.app.fileManager.processFrontMatter(file, (frontmatter) => {
+                frontmatter[fieldName] = id;
+            });
+            if (!silent) {
+                new Notice(t("id extractor success").replace("{{field}}", fieldName).replace("{{id}}", id));
+            }
+        } catch (error) {
+            console.error("ZKNavigation ID extractor failed", error);
+            if (!silent) {
+                new Notice(t("id extractor failure"));
+            }
+        } finally {
+            this.idExtractorProcessing.delete(file.path);
+        }
     }
 
     async openIndexView() {
