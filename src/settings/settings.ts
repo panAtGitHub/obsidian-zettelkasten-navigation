@@ -182,6 +182,54 @@ export class ZKNavigationSettngTab extends PluginSettingTab {
                 })
         );
 
+        new Setting(mainNotesDiv)
+            .setName(t("ID extractor separator"))
+            .setDesc(t("ID extractor separator desc"))
+            .addText((text) =>
+                text
+                    .setPlaceholder(t("ID extractor separator placeholder"))
+                    .setValue(this.plugin.settings.idExtractorSeparator)
+                    .onChange((value) => {
+                        this.plugin.settings.idExtractorSeparator = value;
+                    })
+            );
+
+        new Setting(mainNotesDiv)
+            .setName(t("ID extractor position"))
+            .setDesc(t("ID extractor position desc"))
+            .addDropdown((dropdown) =>
+                dropdown
+                    .addOption("first", t("ID extractor position first"))
+                    .addOption("last", t("ID extractor position last"))
+                    .setValue(this.plugin.settings.idExtractorPosition === "first" ? "first" : "last")
+                    .onChange((value) => {
+                        this.plugin.settings.idExtractorPosition = value;
+                    })
+            );
+
+        new Setting(mainNotesDiv)
+            .setName(t("ID extractor field"))
+            .setDesc(t("ID extractor field desc"))
+            .addText((text) =>
+                text
+                    .setPlaceholder("Zettel")
+                    .setValue(this.plugin.settings.idExtractorFieldName)
+                    .onChange((value) => {
+                        this.plugin.settings.idExtractorFieldName = value;
+                    })
+            );
+
+        new Setting(mainNotesDiv)
+            .setName(t("ID extractor auto"))
+            .setDesc(t("ID extractor auto desc"))
+            .addToggle((toggle) =>
+                toggle
+                    .setValue(this.plugin.settings.idExtractorAuto)
+                    .onChange((value) => {
+                        this.plugin.settings.idExtractorAuto = value;
+                    })
+            );
+
         const retrievalDiv = settingTabDiv.createDiv("zk-setting-section");
         
         new Setting(retrievalDiv)
